@@ -1,0 +1,93 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <WiFi.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
+#define RST_PIN     14  // MFRC522 RST pinini GPIO 14 (D14) pinine bağla
+#define SS_PIN      5   // MFRC522 SDA (SPI için) pinini GPIO 13 (D13) pinine bağla
+#define MOSI_PIN    23  // MFRC522 MOSI (SPI için) pinini GPIO 14 (D14) pinine bağla
+#define MISO_PIN    19  // MFRC522 MISO (SPI için) pinini GPIO 12 (D12) pinine bağla
+#define SCK_PIN     18  // MFRC522 SCK (SPI için) pinini GPIO 13 (D13) pinine bağla
+
+MFRC522 mfrc522(SS_PIN, RST_PIN);  // MFRC522 nesnesini oluştur
+
+const char* ssid = "VodafoneNet-RBE84T";
+const char* password = "SAMM2023TR.";
+
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 10800, 60000); // NTP sunucusu ve zaman dilimi (GMT+3 için 10800 saniye) ayarları
+
+bool kartOkundu = false;
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin();           // SPI haberleşmesi başlatıldı
+  mfrc522.PCD_Init();    // MFRC522 tanımlandı
+  delay(2000);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Bağlanılamadı...");
+    Serial.println("Kartinizin okunmasi için yaklastiriniz...");
+    Serial.println();
+  }
+  
+  Serial.println("Bağlandı!");
+  pinMode(2, OUTPUT); // Dahili LED pinini çıkış olarak ayarla
+}
+
+void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    digitalWrite(2, HIGH); // Bağlıysa dahili LED'i yak
+  } else {
+    digitalWrite(2, LOW); // Bağlantı kesildiyse LED'i söndür
+  }
+  if (!kartOkundu) {
+    // Yeni kartlar aranıyor
+    if (!mfrc522.PICC_IsNewCardPresent()) {
+      return;
+    }
+    if (!mfrc522.PICC_ReadCardSerial()) {
+      return;
+    }
+    // UID numarası yazdırılıyor
+    Serial.print("UID tag :");
+    for (byte i = 0; i < mfrc522.uid.size; i++) {
+       Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
+       Serial.print(mfrc522.uid.uidByte[i], HEX);
+    }
+    Serial.println();
+
+    kartOkundu = true; // Kart okunduğunu işaretle
+    delay(2500);       // 2.5 saniye bekle
+  
+  } 
+  
+  else {
+    // WiFi bağlantısını kontrol et
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi bağlantısı yok. Yeniden bağlanmaya çalışılıyor...");
+      WiFi.begin(ssid, password);
+      while (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        Serial.println("WiFi'ye yeniden bağlanılıyor...");
+      }
+      Serial.println("WiFi'ye yeniden bağlandı");
+    }
+
+    timeClient.update();
+    time_t epochTime = (time_t)timeClient.getEpochTime(); // Zamanı al
+
+    struct tm *timeinfo;
+    timeinfo = localtime(&epochTime);
+    
+    char timeString[30];
+    strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", timeinfo);
+    
+    Serial.print("Gerçek zamanlı saat: ");
+    Serial.println(timeString);
+    Serial.println("Kartınızı tekrar okutabilirsiniz...");
+    kartOkundu = false; // Kart okunmadı olarak işaretle
+  }
+}
