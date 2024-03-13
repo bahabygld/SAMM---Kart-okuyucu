@@ -1,11 +1,10 @@
 #include <Arduino.h>
-#include <WiFi.h>
-#include <Firebase_ESP_Client.h>
 #include <SPI.h>
 #include <MFRC522.h>
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
+#include <HTTPClient.h>
 #include "time.h"
-#include "addons/TokenHelper.h"
-
 
 // Firebase ve WiFi ayarları
 #define WIFI_SSID "VodafoneNet-RBE84T"
@@ -81,7 +80,15 @@ void setup() {
   databasePath = "/UsersData/" + uid + "/readings";
 }
 
+void tokenStatusCallback(TokenInfo tokenInfo) {}
+
 void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    digitalWrite(2, HIGH); // Bağlandıysa dahili LED'i yak
+  } else {
+    digitalWrite(2, LOW); // Bağlantı kesildiyse LED'i söndür
+  }
+
   if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
     for (byte i = 0; i < mfrc522.uid.size; i++) {
       Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
