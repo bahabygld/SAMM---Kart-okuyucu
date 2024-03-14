@@ -96,8 +96,9 @@ void loop() {
     }
     Serial.println();
 
-    if (Firebase.ready() && (millis() - sendDataPrevMillis > timerDelay || sendDataPrevMillis == 0)) {
-      sendDataPrevMillis = millis();
+    sendDataPrevMillis = millis(); // Her kart okunduğunda zamanlayıcıyı sıfırla
+
+    if (Firebase.ready()) {
       parentPath = databasePath + "/" + String(millis());
       FirebaseJson json;
       json.set(uidPath.c_str(), String(mfrc522.uid.uidByte[0]) + String(mfrc522.uid.uidByte[1]) + String(mfrc522.uid.uidByte[2]) + String(mfrc522.uid.uidByte[3]));
