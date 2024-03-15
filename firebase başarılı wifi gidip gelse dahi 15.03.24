@@ -6,8 +6,8 @@
 #include "time.h"
 #include "EEPROM.h"
 
-#define WIFI_SSID "VodafoneNet-RBE84T"
-#define WIFI_PASSWORD "SAMM2023TR."
+#define WIFI_SSID "RUT241_56EC"
+#define WIFI_PASSWORD "Si7t1PRs"
 #define API_KEY "AIzaSyDF6LtJOLJnzhYwdN6nq_Fd5fpW8Ezj07o"
 #define USER_EMAIL "baha_bygld@gmail.com"
 #define USER_PASSWORD "224223"
@@ -72,11 +72,10 @@ void readRFIDCard() {
 void uploadDataFromEEPROM() {
   for (int i = 0; i < EEPROM.length(); i++) {
     if (EEPROM.read(i) != 0xFF) {
-      // EEPROM hücresinde veri varsa yükleme işlemi yap
       String uidString = "";
       for (int j = 0; j < mfrc522.uid.size; j++) {
-        uidString += String(EEPROM.read(i) < 0x10 ? "0" : "");
-        uidString += String(EEPROM.read(i), DEC);
+        uidString += String(EEPROM.read(i + j) < 0x10 ? "0" : "");
+        uidString += String(EEPROM.read(i + j), DEC);
       }
 
       time_t now = time(nullptr);
@@ -90,11 +89,13 @@ void uploadDataFromEEPROM() {
       json.set("time", currentTime);
       Serial.printf("JSON ayarlandı... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
 
-      // Veri yüklendiğinde EEPROM hücresini temizle
-      EEPROM.write(i, 0xFF);
+      for (int j = 0; j < mfrc522.uid.size; j++) {
+        EEPROM.write(i + j, 0xFF);
+      }
+      EEPROM.commit();
+      break; // Döngüden çık
     }
   }
-  EEPROM.commit(); // EEPROM değişikliklerini kaydet
 }
 
 void setup() {
