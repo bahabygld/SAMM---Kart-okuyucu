@@ -48,6 +48,7 @@ void initWiFi(void * parameter) {
 }
 
 void wifiCheck(void * parameter) {
+  bool prevWiFiConnected = false;
   for (;;) {
     if (WiFi.status() != WL_CONNECTED) {
       Serial.println("WiFi bağlantısı kesildi, yeniden bağlanılıyor...");
@@ -60,6 +61,30 @@ void wifiCheck(void * parameter) {
         &Task1,       // Görev tanımlayıcısı
         0             // Çekirdek numarası (0 veya 1)
       );
+      prevWiFiConnected = false;
+    } else {
+      if (!prevWiFiConnected) {
+        // WiFi bağlantısı sağlandığında EEPROM'dan verileri okuyup veritabanına yükle
+        Serial.println("WiFi bağlantısı sağlandı, EEPROM'dan veriler yükleniyor...");
+        for (int i = 0; i < EEPROM.length(); i += 16) {
+          String uid = "";
+          String time = "";
+          for (int j = 0; j < 16; j++) {
+            char c = EEPROM.read(i + j);
+            if (c == '\0') break;
+            if (j < 8) uid += c;
+            else time += c;
+          }
+          if (uid != "" && time != "") {
+            parentPath = databasePath + "/" + String(millis());
+            FirebaseJson json;
+            json.set("uid", uid);
+            json.set("time", time);
+            Serial.printf("JSON ayarlandı... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
+          }
+        }
+        prevWiFiConnected = true;
+      }
     }
     delay(5000); // Her 5 saniyede bir kontrol et
   }
