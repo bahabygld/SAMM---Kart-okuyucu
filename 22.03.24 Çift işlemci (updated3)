@@ -131,7 +131,7 @@ void setup() {
 }
 
 void readRFIDCard() {
-  if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
+   if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
     String uidString = "";
     for (byte i = 0; i < mfrc522.uid.size; i++) {
       uidString += String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : "");
@@ -143,11 +143,24 @@ void readRFIDCard() {
     timeinfo = localtime(&now);
     String currentTime = String(timeinfo->tm_hour) + ":" + String(timeinfo->tm_min) + ":" + String(timeinfo->tm_sec);
 
-    parentPath = databasePath + "/" + String(millis());
-    FirebaseJson json;
-    json.set("uid", uidString);
-    json.set("time", currentTime);
-    Serial.printf("JSON ayarlandı... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
+    if (WiFi.status() != WL_CONNECTED) {
+      // WiFi bağlantısı yokken kart bilgilerini EEPROM'a yaz
+      Serial.println("WiFi bağlantısı yok, kart bilgileri EEPROM'a yazılıyor...");
+      for (int i = 0; i < uidString.length(); i++) {
+        EEPROM.write(i, uidString[i]);
+      }
+      for (int i = 0; i < currentTime.length(); i++) {
+        EEPROM.write(uidString.length() + i, currentTime[i]);
+      }
+      EEPROM.write(uidString.length() + currentTime.length(), '\0'); // Null karakter ekle
+      EEPROM.commit();
+    } else {
+      parentPath = databasePath + "/" + String(millis());
+      FirebaseJson json;
+      json.set("uid", uidString);
+      json.set("time", currentTime);
+      Serial.printf("JSON ayarlandı... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
+    }
 
     cardRead = true;
     delay(2000); // Ardışık okumalar arasında 2 saniye bekleme
@@ -161,4 +174,6 @@ void loop() {
 
   mfrc522.PICC_HaltA();
   mfrc522.PCD_StopCrypto1();
+
+  // Diğer işlemler...
 }
