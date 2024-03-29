@@ -130,7 +130,16 @@ void setup() {
   Serial.println(uid);
 
   databasePath = "/UsersData/" + uid + "/readings";
+
+  // EEPROM'dan verileri flaş belleğe aktarma kontrolü
+  String savedUid = preferences.getString("uid", "");
+  String savedTime = preferences.getString("time", "");
+  Serial.print("Flaş bellekte kaydedilen UID: ");
+  Serial.println(savedUid);
+  Serial.print("Flaş bellekte kaydedilen Time: ");
+  Serial.println(savedTime);
 }
+
 
 void readRFIDCard() {
    if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
