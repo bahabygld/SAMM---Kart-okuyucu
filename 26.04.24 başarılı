@@ -110,8 +110,6 @@ void wifiCheck(void * parameter) {
   }
 }
 
-
-
 void readRFIDCard(void * parameter) {
   for (;;) {
     if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
@@ -131,6 +129,7 @@ void readRFIDCard(void * parameter) {
     time_t now = time(nullptr);
     struct tm *timeinfo;
     timeinfo = localtime(&now);
+    String cardDate = String(timeinfo->tm_mday) + "/" + String(timeinfo->tm_mon + 1) + "/" + String(timeinfo->tm_year + 1900);
     String currentTime = String(timeinfo->tm_hour) + ":" + String(timeinfo->tm_min) + ":" + String(timeinfo->tm_sec);
 
     if (WiFi.status() != WL_CONNECTED) {
@@ -151,6 +150,7 @@ void readRFIDCard(void * parameter) {
       FirebaseJson json;
       json.set("uid", uidString);
       json.set("time", currentTime);
+      json.set("date", cardDate);
       Serial.printf("JSON ayarlandı... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
     }
 
@@ -241,13 +241,13 @@ unsigned long previousMillis = 0;
 const long interval = 10 * 60 * 1000; // 5 dakika (milisaniye cinsinden)
 
 void loop() {
-  unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= interval) {
-    Serial.println("ESP32 yeniden başlatılıyor...");
-    ESP.restart();
+  //unsigned long currentMillis = millis();
+  //if (currentMillis - previousMillis >= interval) {
+    //Serial.println("ESP32 yeniden başlatılıyor...");
+    //ESP.restart();
     // Döngü her 10 dakikada bir ESP32'yi yeniden başlatır
-    previousMillis = currentMillis;
-  }
+    //previousMillis = currentMillis;
+  //}
 
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
 
