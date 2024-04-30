@@ -113,28 +113,34 @@ void readRFIDCard(void * parameter) {
       // Eğer okunan UID, son UID'den farklı ise
       // Kart bilgilerini işle ve son UID'yi güncelle
       lastUid = uidString;
-      time_t now = time(nullptr);
-      struct tm *timeinfo;
-      timeinfo = localtime(&now);
-      String currentTime = String(timeinfo->tm_hour) + ":" + String(timeinfo->tm_min) + ":" + String(timeinfo->tm_sec);
-
+      String cardTime;
       if (WiFi.status() != WL_CONNECTED) {
         // WiFi bağlı değilken kart bilgilerini flaş belleğe yaz
         Serial.println("WiFi bağlantısı yok, kart bilgileri flaş belleğe yazılıyor...");
+        unsigned long currentMillis = millis();
+        unsigned long elapsedTime = currentMillis - lastReadTime;
+        cardTime = String(elapsedTime / 1000); // Elapsed time in seconds
+        lastReadTime = currentMillis;
         int count = preferences.getInt("count", 0);
         String keyUid = "uid" + String(count);
         String keyTime = "time" + String(count);
         preferences.putString(keyUid.c_str(), uidString);
-        preferences.putString(keyTime.c_str(), currentTime);
+        preferences.putString(keyTime.c_str(), cardTime);
         preferences.putInt("count", count + 1);
 
         Serial.print("Flaş bellekteki kart sayısı: ");
         Serial.println(count + 1);
       } else {
         // Kart bilgilerini Firebase'e gönder
+        time_t now = time(nullptr);
+        struct tm *timeinfo;
+        timeinfo = localtime(&now);
+        String currentDate = String(timeinfo->tm_year + 1900) + "-" + String(timeinfo->tm_mon + 1) + "-" + String(timeinfo->tm_mday);
+        String currentTime = String(timeinfo->tm_hour) + ":" + String(timeinfo->tm_min) + ":" + String(timeinfo->tm_sec);
         parentPath = databasePath + "/" + String(millis());
         FirebaseJson json;
         json.set("uid", uidString);
+        json.set("date", currentDate);
         json.set("time", currentTime);
         Serial.printf("JSON ayarlandı... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
       }
