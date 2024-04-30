@@ -2,7 +2,7 @@
 #include <WiFi.h>
 #include <Firebase_ESP_Client.h>
 #include <SPI.h>
-#include <MFRC522.h>
+#include <MFRC522.h> 
 #include <time.h>
 #include <Preferences.h> // Flash belleği için kütüphane
 
@@ -18,6 +18,7 @@
 #define MOSI_PIN    23
 #define MISO_PIN    19
 #define SCK_PIN     18
+
 #define LED_PIN     13 // LED pin
 #define LED_ON      HIGH
 #define LED_OFF     LOW
@@ -31,9 +32,8 @@ FirebaseConfig config;
 String uid;
 String databasePath;
 String parentPath;
-String previousUid = "";
 
-const char* ntpServer = "tr.pool.ntp.org"; // Türkiye'nin zaman sunucusu
+const char* ntpServer = "pool.ntp.org";
 
 Preferences preferences; // Flash belleği için nesne oluştur
 
@@ -54,63 +54,46 @@ void initWiFi(void * parameter) {
 }
 
 void wifiCheck(void * parameter) {
-  bool prevWiFiConnected = false;
   for (;;) {
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("WiFi bağlantısı kesildi, yeniden bağlanılıyor...");
-      xTaskCreatePinnedToCore(
-        initWiFi,     // Görev fonksiyonu
-        "WiFiInit",   // Görev adı
-        10000,        // Yığın boyutu
-        NULL,         // Parametre
-        1,            // Öncelik
-        NULL,         // Görev tanımlayıcısı
-        0             // Çekirdek numarası (0 veya 1)
-      );
-      prevWiFiConnected = false;
-    } else {
-      if (!prevWiFiConnected) {
-        // WiFi bağlantısı sağlandığında flaş bellekten verileri okuyup veritabanına yükle
-        Serial.println("WiFi bağlantısı sağlandı, flaş bellekten veriler yükleniyor...");
-        int count = preferences.getInt("count", 0);
-        Serial.print("Flaş bellekte kaydedilen kart sayısı: ");
-        Serial.println(count);
+    if (xSemaphoreTake(semafor, portMAX_DELAY) == pdTRUE) {
+      // WiFi bağlantısı sağlandığında flaş bellekten verileri okuyup veritabanına yükle
+      Serial.println("WiFi bağlantısı sağlandı, flaş bellekten veriler yükleniyor...");
+      int count = preferences.getInt("count", 0);
+      Serial.print("Flaş bellekte kaydedilen kart sayısı: ");
+      Serial.println(count);
 
-        for (int i = 0; i < count; i++) {
-          String keyUid = "uid" + String(i);
-          String keyTime = "time" + String(i);
-          String uidString = preferences.getString(keyUid.c_str(), "");
-          String timeString = preferences.getString(keyTime.c_str(), "");
-          if (uidString != "" && timeString != "") {
-            parentPath = databasePath + "/" + String(millis());
-            FirebaseJson json;
-            json.set("uid", uidString);
-            json.set("time", timeString);
-            if (Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json)) {
-              Serial.printf("JSON ayarlandı ve veri başarıyla gönderildi... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
-              preferences.remove(keyUid.c_str()); // UID'yi flaş bellekten sil
-              preferences.remove(keyTime.c_str()); // Zamanı flaş bellekten sil
-              Serial.println("Flaş bellekten veri silindi.");
-              delay(1000); // 1 saniye bekleme
-            } else {
-              Serial.printf("Veri gönderme hatası: %s\n", fbdo.errorReason().c_str());
-            }
+      for (int i = 0; i < count; i++) {
+        String keyUid = "uid" + String(i);
+        String keyTime = "time" + String(i);
+        String uidString = preferences.getString(keyUid.c_str(), "");
+        String timeString = preferences.getString(keyTime.c_str(), "");
+        if (uidString != "" && timeString != "") {
+          parentPath = databasePath + "/" + String(millis());
+          FirebaseJson json;
+          json.set("uid", uidString);
+          json.set("time", timeString);
+          if (Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json)) {
+            Serial.printf("JSON ayarlandı ve veri başarıyla gönderildi... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
+            preferences.remove(keyUid.c_str()); // UID'yi flaş bellekten sil
+            preferences.remove(keyTime.c_str()); // Zamanı flaş bellekten sil
+            Serial.println("Flaş bellekten veri silindi.");
+            delay(1000); // 1 saniye bekleme
+          } else {
+            Serial.printf("Veri gönderme hatası: %s\n", fbdo.errorReason().c_str());
           }
         }
-        
-        // Tüm veriler aktarıldıktan sonra count değerini sıfırla
-        preferences.putInt("count", 0);
-
-        delay(4000); // 4 saniye bekleme
-
-        prevWiFiConnected = true;
       }
+      
+      // Tüm veriler aktarıldıktan sonra count değerini sıfırla
+      preferences.putInt("count", 0);
     }
-    delay(5000); // Her 5 saniyede bir kontrol et
+    vTaskDelay(5000 / portTICK_PERIOD_MS); // Her 5 saniyede bir kontrol et
   }
 }
 
 void readRFIDCard(void * parameter) {
+  String lastUid = "";
+  unsigned long lastReadTime = 0;
   for (;;) {
     if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
       vTaskDelay(100 / portTICK_PERIOD_MS); // Kart algılanana kadar bekle
@@ -126,14 +109,13 @@ void readRFIDCard(void * parameter) {
       uidString += String(mfrc522.uid.uidByte[i], HEX);
     }
 
-    if (uidString != previousUid) {
-      // Kart daha önce okunan kart değilse işlem yap
-      previousUid = uidString;
-
+    if (uidString != lastUid) {
+      // Eğer okunan UID, son UID'den farklı ise
+      // Kart bilgilerini işle ve son UID'yi güncelle
+      lastUid = uidString;
       time_t now = time(nullptr);
       struct tm *timeinfo;
       timeinfo = localtime(&now);
-      String cardDate = String(timeinfo->tm_mday) + "/" + String(timeinfo->tm_mon + 1) + "/" + String(timeinfo->tm_year + 1900);
       String currentTime = String(timeinfo->tm_hour) + ":" + String(timeinfo->tm_min) + ":" + String(timeinfo->tm_sec);
 
       if (WiFi.status() != WL_CONNECTED) {
@@ -154,14 +136,23 @@ void readRFIDCard(void * parameter) {
         FirebaseJson json;
         json.set("uid", uidString);
         json.set("time", currentTime);
-        json.set("date", cardDate);
         Serial.printf("JSON ayarlandı... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
       }
 
-      delay(2000); // Ardışık okumalar arasında 2 saniye bekle
+      lastReadTime = millis();
+    }
 
-      // LED'i söndür
-      digitalWrite(LED_PIN, LED_OFF);
+    // LED'i söndür
+    digitalWrite(LED_PIN, LED_OFF);
+
+    // Yeni bir kart okunana kadar bekle
+    bool newCardDetected = false;
+    while (millis() - lastReadTime < 5000) {
+      if (mfrc522.PICC_IsNewCardPresent()) {
+        newCardDetected = true;
+        break;
+      }
+      vTaskDelay(100 / portTICK_PERIOD_MS);
     }
   }
 }
@@ -174,8 +165,6 @@ void setup() {
 
   preferences.begin("my-app", false); // Başlatma işlemi
 
-  config.max_token_generation_retry = 5; // Varsayılan değer 5'tir
-  
   xTaskCreatePinnedToCore(
     initWiFi,     // WiFi başlatma fonksiyonu
     "InitWiFi",   // Görev adı
@@ -242,16 +231,16 @@ void setup() {
 }
 
 unsigned long previousMillis = 0;
-const long interval = 10 * 60 * 1000; // 5 dakika (milisaniye cinsinden)
+const long interval = 5 * 60 * 1000; // 5 dakika (milisaniye cinsinden)
 
 void loop() {
-  //unsigned long currentMillis = millis();
-  //if (currentMillis - previousMillis >= interval) {
-    //Serial.println("ESP32 yeniden başlatılıyor...");
-    //ESP.restart();
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval) {
+    Serial.println("ESP32 yeniden başlatılıyor...");
+    ESP.restart();
     // Döngü her 10 dakikada bir ESP32'yi yeniden başlatır
-    //previousMillis = currentMillis;
-  //}
+    previousMillis = currentMillis;
+  }
 
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
 
