@@ -97,6 +97,7 @@ void wifiCheck(void * parameter) {
 void readRFIDCard(void * parameter) {
   String lastUid = "";
   unsigned long lastReadTime = 0;
+  unsigned long startMillis = millis(); // Sistemin başlangıç zamanı
   for (;;) {
     if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
       vTaskDelay(100 / portTICK_PERIOD_MS); // Kart algılanana kadar bekle
@@ -149,6 +150,7 @@ void readRFIDCard(void * parameter) {
   json.set("date", currentDate);
   json.set("time", currentTime);
   json.set("elapsedTime", elapsedTime / 1000); // Add elapsed time to JSON
+  json.set("startTime", (currentMillis - startMillis) / 1000); // Başlangıç süresini JSON'a ekle
   Serial.printf("JSON ayarlandı... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
 }
 
@@ -246,4 +248,4 @@ void loop() {
   Serial.println(elapsedTime / 1000); // Geçen süreyi saniyeye çevirerek yazdır
 
   vTaskDelay(100 / portTICK_PERIOD_MS); // 100 ms bekle
-}
+} 
