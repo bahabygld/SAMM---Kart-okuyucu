@@ -39,6 +39,7 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
+FirebaseJson json;
 
 String uid;
 String databasePath;
@@ -143,6 +144,7 @@ void wifiCheck(void * parameter) {
 }
 
 String lastUID = ""; // En son okutulan kartın UID'sini saklamak için değişken
+String uniqueNode = String(millis());
 
 void readRFIDCard(void * param) {
   for (;;) {
@@ -175,6 +177,9 @@ void readRFIDCard(void * param) {
 
     lastUID = content; // En son okutulan kartın UID'sini güncelle
 
+    // Benzersiz düğüm adı oluşturmak için zaman damgasını kullan
+    String uniqueNode = String(millis());
+
     // Gerekli JSON nesnesi oluşturuluyor
     FirebaseJson json;
 
@@ -195,9 +200,6 @@ void readRFIDCard(void * param) {
     json.set("UID", content);
     json.set("elapsed_time", (millis() - powerOnTime) / 1000); // Elapsed time'ı ekliyoruz
 
-    // Benzersiz düğüm adı oluşturmak için UID ve zaman damgasını kullanıyoruz
-    String uniqueNode = String(millis()); // Benzersiz düğüm adı için zaman damgası kullan
-
     // RFID kartının UID'sini ve benzersiz düğüm adını kullanarak yeni bir düğüm oluşturuyoruz
     String userPath = "/UsersData/" + uid + "/readings/" + content + "_" + uniqueNode; // Kullanıcı verilerinin bulunduğu düğüm yolu
     if (Firebase.RTDB.setJSON(&fbdo, userPath.c_str(), &json)) {
@@ -210,6 +212,7 @@ void readRFIDCard(void * param) {
     delay(1000); // RFID kartının tekrar okunması için bekliyoruz
   }
 }
+
 
 void displayInfo()
 {
