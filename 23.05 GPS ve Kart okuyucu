@@ -142,6 +142,8 @@ void wifiCheck(void * parameter) {
   }
 }
 
+String lastUID = ""; // En son okutulan kartın UID'sini saklamak için değişken
+
 void readRFIDCard(void * param) {
   for (;;) {
     if ( !mfrc522.PICC_IsNewCardPresent()) {
@@ -159,35 +161,45 @@ void readRFIDCard(void * param) {
       content.concat(String(mfrc522.uid.uidByte[i], HEX));
     }
     content.toUpperCase();
-    
+
+    if (content == lastUID) {
+      Serial.println("Aynı kart art arda okutulamaz.");
+      delay(1000);
+      continue; // Aynı kart okutulduysa işlemi atla
+    }
+
+    lastUID = content; // En son okutulan kartın UID'sini güncelle
+
     // Gerekli JSON nesnesi oluşturuluyor
     FirebaseJson json;
-    
+
     // Latitude ve longitude değerlerini string'e dönüştürüyoruz
     char latBuffer[10];
     char lonBuffer[10];
     dtostrf(gps.location.lat(), 6, 6, latBuffer);
     dtostrf(gps.location.lng(), 6, 6, lonBuffer);
-    
+
     // JSON nesnesine ekleme yapıyoruz
     json.set("latitude", latBuffer);
     json.set("longitude", lonBuffer);
     json.set("UID", content);
     json.set("elapsed_time", (millis() - powerOnTime) / 1000); // Elapsed time'ı ekliyoruz
-    
-    // RFID kartının UID'sini kullanarak yeni bir düğüm oluşturuyoruz
-    String userPath = "/UsersData/" + uid + "/readings/" + content; // Kullanıcı verilerinin bulunduğu düğüm yolu
+
+    // Benzersiz düğüm adı oluşturmak için UID ve zaman damgasını kullanıyoruz
+    String uniqueNode = String(millis()); // Benzersiz düğüm adı için zaman damgası kullan
+
+    // RFID kartının UID'sini ve benzersiz düğüm adını kullanarak yeni bir düğüm oluşturuyoruz
+    String userPath = "/UsersData/" + uid + "/readings/" + content + "_" + uniqueNode; // Kullanıcı verilerinin bulunduğu düğüm yolu
     if (Firebase.RTDB.setJSON(&fbdo, userPath.c_str(), &json)) {
       Serial.println("Data sent to Firebase successfully!");
     } else {
       Serial.println("Failed to send data to Firebase.");
       Serial.println(fbdo.errorReason());
     }
-    
+
     delay(1000); // RFID kartının tekrar okunması için bekliyoruz
   }
 }
-
 
 
 void displayInfo()
