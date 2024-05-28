@@ -4,7 +4,7 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <time.h>
-#include <Preferences.h> // Flash belleği için kütüphane
+#include <Preferences.h>
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
 
@@ -12,9 +12,15 @@
 #define WIFI_PASSWORD_1 "SAMM2023TR.."
 #define WIFI_SSID_2 "VodafoneNet-RBE84T"
 #define WIFI_PASSWORD_2 "SAMM2023TR."
-#define WIFI_SSID_3 "SAM Mekanik Enerji"
-#define WIFI_PASSWORD_3 "SAM2024TR."
+#define WIFI_SSID_3 "trlink_cbce"
+#define WIFI_PASSWORD_3 "12345678"
+#define WIFI_SSID_4 "SAM Mekanik Enerji"
+#define WIFI_PASSWORD_4 "SAM2024TR."
+#define WIFI_SSID_5 "RUT241_56EC"
+#define WIFI_PASSWORD_5 "Si7t1PRs"
+
 #define MAX_WIFI_RETRIES 5
+
 #define API_KEY "AIzaSyBnEwHEpxCQkJ48H4dUNHimrWkfg_FbEY8"
 #define USER_EMAIL "baha.bygld@gmail.com"
 #define USER_PASSWORD "224223"
@@ -24,8 +30,7 @@
 #define MOSI_PIN    23
 #define MISO_PIN    19
 #define SCK_PIN     18
-
-#define LED_PIN     13 // LED pin
+#define LED_PIN     13
 
 int RXPin = 26;
 int TXPin = 27;
@@ -38,23 +43,33 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 FirebaseData fbdo;
 FirebaseAuth auth;
 FirebaseConfig config;
-FirebaseJson json;
 
 String uid;
 String databasePath;
 String parentPath;
 
-Preferences preferences; // Flash belleği için nesne oluştur
+Preferences preferences;
 
 SemaphoreHandle_t semafor;
 
-unsigned long powerOnTime = 0; // Zamanı sıfırlamak için güç verildiği zamanı saklar
-bool powerOn = false; // Güç verildiğinde true olur
+unsigned long powerOnTime = 0;
+bool powerOn = false;
 
 void initWiFi(void * parameter) {
   int attempt = 1;
   do {
-    WiFi.begin(attempt == 1 ? WIFI_SSID_1 : (attempt == 2 ? WIFI_SSID_2 : WIFI_SSID_3),attempt == 1 ? WIFI_PASSWORD_1 : (attempt == 2 ? WIFI_PASSWORD_2 : WIFI_PASSWORD_3));
+    WiFi.begin(
+      attempt == 1 ? WIFI_SSID_1 : 
+      attempt == 2 ? WIFI_SSID_2 : 
+      attempt == 3 ? WIFI_SSID_3 :
+      attempt == 4 ? WIFI_SSID_4 :
+      WIFI_SSID_5,
+      attempt == 1 ? WIFI_PASSWORD_1 : 
+      attempt == 2 ? WIFI_PASSWORD_2 : 
+      attempt == 3 ? WIFI_PASSWORD_3 :
+      attempt == 4 ? WIFI_PASSWORD_4 :
+      WIFI_PASSWORD_5
+    );
 
     Serial.printf("WiFi'ye bağlanılıyor... Attempt %d\n", attempt);
     unsigned long startTime = millis();
@@ -64,7 +79,7 @@ void initWiFi(void * parameter) {
     }
     if (WiFi.status() == WL_CONNECTED) {
       Serial.printf("\nWiFi'ye başarıyla bağlandı. SSID: %s\n", WiFi.SSID().c_str());
-      xSemaphoreGive(semafor); // WiFi bağlantısı kurulduğunda semaforu serbest bırak
+      xSemaphoreGive(semafor);
       vTaskDelete(NULL);
     }
     attempt++;
@@ -76,7 +91,78 @@ void initWiFi(void * parameter) {
   }
 }
 
+void wifiCheck(void * parameter) {
+  vTaskDelay(7000 / portTICK_PERIOD_MS);
+  for (;;) {
+    if (xSemaphoreTake(semafor, portMAX_DELAY) == pdTRUE) {
+      config.api_key = API_KEY;
+      auth.user.email = USER_EMAIL;
+      auth.user.password = USER_PASSWORD;
+      config.database_url = DATABASE_URL;
 
+      Firebase.reconnectWiFi(true);
+      fbdo.setResponseSize(4096);
+      config.max_token_generation_retry = 5;
+      Firebase.begin(&config, &auth);
+
+      Serial.println("Kullanıcı UID alınıyor...");
+      while ((auth.token.uid) == "") {
+        Serial.print('.');
+        delay(1000);
+      }
+      uid = auth.token.uid.c_str();
+      Serial.print("Kullanıcı UID: ");
+      Serial.println(uid);
+
+      databasePath = "/UsersData/" + uid + "/readings";
+
+      Serial.println("WiFi bağlantısı sağlandı, flaş bellekten veriler yükleniyor...");
+
+      int count = preferences.getInt("count", 0);
+      Serial.print("Flaş bellekteki kart sayısı: ");
+      Serial.println(count);
+
+      for (int i = 0; i < count; i++) {
+        String keyUid = "uid" + String(i);
+        String keyTime = "time" + String(i);
+        String uidString = preferences.getString(keyUid.c_str(), "");
+        String timeString = preferences.getString(keyTime.c_str(), "");
+        if (uidString != "" && timeString != "") {
+          parentPath = databasePath + "/" + String(millis());
+          FirebaseJson json;
+          json.set("uid", uidString);
+          json.set("time", timeString);
+
+          char latBuffer[10];
+          char lonBuffer[10];
+
+          if (gps.location.isValid()) {
+            dtostrf(gps.location.lat(), 6, 6, latBuffer);
+            dtostrf(gps.location.lng(), 6, 6, lonBuffer);
+            json.set("latitude", latBuffer);
+            json.set("longitude", lonBuffer);
+          } else {
+            json.set("latitude", "");
+            json.set("longitude", "");
+          }
+
+          if (Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json)) {
+            Serial.printf("JSON ayarlandı ve veri başarıyla gönderildi... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
+            preferences.remove(keyUid.c_str());
+            preferences.remove(keyTime.c_str());
+            Serial.println("Flaş bellekten veri silindi.");
+            delay(1000);
+          } else {
+            Serial.printf("Veri gönderme hatası: %s\n", fbdo.errorReason().c_str());
+          }
+        }
+      }
+
+      preferences.putInt("count", 0);
+    }
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+  }
+}
 
 bool waitForWiFiConnection() {
   unsigned long startTime = millis();
@@ -93,56 +179,7 @@ bool waitForWiFiConnection() {
   }
 }
 
-void wifiCheck(void * parameter) {
-  vTaskDelay(7000 / portTICK_PERIOD_MS); // WiFi bağlantısından sonra 7 saniye bekleyin
-  for (;;) {
-    if (xSemaphoreTake(semafor, portMAX_DELAY) == pdTRUE) {
-      // WiFi bağlantısı sağlandı, flaş belleğinden verileri yükle ve veritabanına yükle
-      Serial.println("WiFi bağlantısı sağlandı, kullanıcı UID alınıyor...");
-      
-      while ((auth.token.uid) == "") {
-        Serial.print('.');
-        delay(1000);
-      }
-      
-      uid = auth.token.uid.c_str();
-      Serial.print("Kullanıcı UID: ");
-      Serial.println(uid);
-      
-      int count = preferences.getInt("count", 0);
-      Serial.print("Flaş bellekteki kart sayısı: ");
-      Serial.println(count);
-
-      for (int i = 0; i < count; i++) {
-        String keyUid = "uid" + String(i);
-        String keyTime = "time" + String(i);
-        String uidString = preferences.getString(keyUid.c_str(), "");
-        String timeString = preferences.getString(keyTime.c_str(), "");
-        if (uidString != "" && timeString != "") {
-          parentPath = databasePath + "/" + String(millis());
-          FirebaseJson json;
-          json.set("uid", uidString);
-          json.set("time", timeString);
-          if (Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json)) {
-            Serial.printf("JSON ayarlandı ve veri başarıyla gönderildi... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
-            preferences.remove(keyUid.c_str()); // UID'yi flaş bellekten sil
-            preferences.remove(keyTime.c_str()); // Zamanı flaş bellekten sil
-            Serial.println("Flaş bellekten veri silindi.");
-            delay(1000); // 1 saniye bekleme
-          } else {
-            Serial.printf("Veri gönderme hatası: %s\n", fbdo.errorReason().c_str());
-          }
-        }
-      }
-
-      // Tüm veriler aktarıldıktan sonra count değerini sıfırla
-      preferences.putInt("count", 0);
-    }
-    vTaskDelay(5000 / portTICK_PERIOD_MS); // Her 5 saniyede bir kontrol et
-  }
-}
-
-String lastUID = ""; // En son okutulan kartın UID'sini saklamak için değişken
+String lastUID = "";
 String uniqueNode = String(millis());
 
 void readRFIDCard(void * param) {
@@ -156,7 +193,6 @@ void readRFIDCard(void * param) {
       continue;
     }
 
-    // LED'i 1 saniye boyunca yak
     digitalWrite(LED_PIN, HIGH);
     delay(1000);
     digitalWrite(LED_PIN, LOW);
@@ -171,22 +207,18 @@ void readRFIDCard(void * param) {
     if (content == lastUID) {
       Serial.println("Aynı kart art arda okutulamaz.");
       delay(1000);
-      continue; // Aynı kart okutulduysa işlemi atla
+      continue;
     }
 
-    lastUID = content; // En son okutulan kartın UID'sini güncelle
+    lastUID = content;
 
-    // Benzersiz düğüm adı oluşturmak için zaman damgasını kullan
     String uniqueNode = String(millis());
 
-    // Gerekli JSON nesnesi oluşturuluyor
     FirebaseJson json;
 
-    // Latitude ve longitude değerlerini string'e dönüştürüyoruz
-    char latBuffer[10];
-    char lonBuffer[10];
-
     if (gps.location.isValid()) {
+      char latBuffer[10];
+      char lonBuffer[10];
       dtostrf(gps.location.lat(), 6, 6, latBuffer);
       dtostrf(gps.location.lng(), 6, 6, lonBuffer);
       json.set("latitude", latBuffer);
@@ -197,55 +229,67 @@ void readRFIDCard(void * param) {
     }
 
     json.set("UID", content);
-    json.set("elapsed_time", (millis() - powerOnTime) / 1000); // Elapsed time'ı ekliyoruz
+    json.set("elapsed_time", (millis() - powerOnTime) / 1000);
 
-    // RFID kartının UID'sini ve benzersiz düğüm adını kullanarak yeni bir düğüm oluşturuyoruz
-    String userPath = "/UsersData/" + uid + "/readings/" + content + "_" + uniqueNode; // Kullanıcı verilerinin bulunduğu düğüm yolu
-    if (Firebase.RTDB.setJSON(&fbdo, userPath.c_str(), &json)) {
-      Serial.println("Data sent to Firebase successfully!");
-    } else {
-      Serial.println("Failed to send data to Firebase.");
-      Serial.println(fbdo.errorReason());
+    if (WiFi.status() == WL_CONNECTED) {
+      time_t now;
+      struct tm timeinfo;
+      time(&now);
+      localtime_r(&now, &timeinfo);
+      char timeString[25];
+      strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
+      json.set("timestamp", timeString);
     }
 
-    delay(1000); // RFID kartının tekrar okunması için bekliyoruz
+    String userPath = "/UsersData/" + uid + "/readings/" + content + "_" + uniqueNode;
+
+    if (Firebase.ready()) {
+      if (Firebase.RTDB.setJSON(&fbdo, userPath.c_str(), &json)) {
+        Serial.println("Data sent to Firebase successfully!");
+      } else {
+        Serial.println("Failed to send data to Firebase.");
+        Serial.println(fbdo.errorReason());
+      }
+    } else {
+      int count = preferences.getInt("count", 0);
+      String keyUid = "uid" + String(count);
+      String keyTime = "time" + String(count);
+      preferences.putString(keyUid.c_str(), content);
+      preferences.putString(keyTime.c_str(), String((millis() - powerOnTime) / 1000));
+      count++;
+      preferences.putInt("count", count);
+      Serial.println("Data saved to flash memory.");
+    }
+
+    delay(1000);
   }
 }
 
-
-void displayInfo()
-{
-  if (gps.location.isValid())
-  {
+void displayInfo() {
+  if (gps.location.isValid()) {
     Serial.print("Latitude: ");
     Serial.println(gps.location.lat(), 6);
     Serial.print("Longitude: ");
     Serial.println(gps.location.lng(), 6);
     Serial.print("Altitude: ");
     Serial.println(gps.altitude.meters());
-  }
-  else
-  {
+  } else {
     Serial.println("Location: Not Available");
   }
-  
+
   Serial.print("Date: ");
-  if (gps.date.isValid())
-  {
+  if (gps.date.isValid()) {
     Serial.print(gps.date.month());
     Serial.print("/");
     Serial.print(gps.date.day());
     Serial.print("/");
     Serial.println(gps.date.year());
-  }
-  else
-  {
+  } else {
     Serial.println("Not Available");
   }
-  
+
   Serial.print("Time: ");
-  if (gps.time.isValid())
-  {
+  if (gps.time.isValid()) {
     if (gps.time.hour() < 10) Serial.print(F("0"));
     Serial.print(gps.time.hour());
     Serial.print(":");
@@ -254,9 +298,7 @@ void displayInfo()
     Serial.print(":");
     if (gps.time.second() < 10) Serial.print(F("0"));
     Serial.println(gps.time.second());
-  }
-  else
-  {
+  } else {
     Serial.println("Not Available");
   }
   Serial.println();
@@ -264,43 +306,42 @@ void displayInfo()
 
 void setup() {
   Serial.begin(9600);
-  semafor = xSemaphoreCreateBinary(); // Semaforu oluştur
+  semafor = xSemaphoreCreateBinary();
 
-  pinMode(LED_PIN, OUTPUT); // LED pinini çıkış olarak ayarla
+  pinMode(LED_PIN, OUTPUT);
 
-  preferences.begin("my-app", false); // Başlatma işlemi
+  preferences.begin("my-app", false);
 
-  // GPS'i başlat
   gpsSerial.begin(GPSBaud);
 
   xTaskCreatePinnedToCore(
-    initWiFi,     // WiFi başlatma fonksiyonu
-    "InitWiFi",   // Görev adı
-    10000,        // Yığın boyutu
-    NULL,         // Parametre
-    1,            // Öncelik
-    NULL,         // Görev tanımlayıcısı
-    0             // Çekirdek numarası (0 veya 1)
+    initWiFi,
+    "InitWiFi",
+    10000,
+    NULL,
+    1,
+    NULL,
+    0
   );
 
   xTaskCreatePinnedToCore(
-    wifiCheck,    // WiFi kontrol fonksiyonu
-    "WiFiCheck",  // Görev adı
-    10000,        // Yığın boyutu
-    NULL,         // Parametre
-    1,            // Öncelik
-    NULL,         // Görev tanımlayıcısı
-    0             // Çekirdek numarası (0 veya 1)
+    wifiCheck,
+    "WiFiCheck",
+    10000,
+    NULL,
+    1,
+    NULL,
+    0
   );
 
   xTaskCreatePinnedToCore(
-    readRFIDCard, // RFID kart okuma fonksiyonu
-    "RFIDCard",   // Görev adı
-    10000,        // Yığın boyutu
-    NULL,         // Parametre
-    1,            // Öncelik
-    NULL,         // Görev tanımlayıcısı
-    0             // Çekirdek numarası (0 veya 1)
+    readRFIDCard,
+    "RFIDCard",
+    10000,
+    NULL,
+    1,
+    NULL,
+    0
   );
 
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
@@ -308,42 +349,19 @@ void setup() {
 
   configTime(3 * 3600, 0, "pool.ntp.org");
 
-  config.api_key = API_KEY;
-  auth.user.email = USER_EMAIL;
-  auth.user.password = USER_PASSWORD;
-  config.database_url = DATABASE_URL;
-
-  Firebase.reconnectWiFi(true);
-  fbdo.setResponseSize(4096);
-  config.max_token_generation_retry = 5;
-  Firebase.begin(&config, &auth);
-
-  Serial.println("Kullanıcı UID alınıyor...");
-  while ((auth.token.uid) == "") {
-    Serial.print('.');
-    delay(1000);
-  }
-  uid = auth.token.uid.c_str();
-  Serial.print("Kullanıcı UID: ");
-  Serial.println(uid);
-
-  databasePath = "/UsersData/" + uid + "/readings";
-
-  powerOnTime = millis(); // Güç verildiği zamanı kaydet
-  powerOn = true; // Güç verildi
+  powerOnTime = millis();
+  powerOn = true;
 }
-
 
 void loop() {
   unsigned long currentMillis = millis();
   unsigned long elapsedTime = currentMillis - powerOnTime;
   Serial.print("Elapsed Time (s): ");
-  Serial.println(elapsedTime / 1000); // Geçen süreyi saniyeye çevirerek yazdır
+  Serial.println(elapsedTime / 1000);
 
-  // GPS verilerini işle
   while (gpsSerial.available() > 0)
     if (gps.encode(gpsSerial.read()))
       displayInfo();
 
-  vTaskDelay(100 / portTICK_PERIOD_MS); // 100 ms bekle
+  vTaskDelay(100 / portTICK_PERIOD_MS);
 }
