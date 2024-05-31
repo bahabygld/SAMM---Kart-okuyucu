@@ -8,17 +8,6 @@
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
 
-#define WIFI_SSID_1 "Samsung t50"
-#define WIFI_PASSWORD_1 "SAMM2023TR.."
-#define WIFI_SSID_2 "VodafoneNet-RBE84T"
-#define WIFI_PASSWORD_2 "SAMM2023TR."
-#define WIFI_SSID_3 "trlink_cbce"
-#define WIFI_PASSWORD_3 "12345678"
-#define WIFI_SSID_4 "SAM Mekanik Enerji"
-#define WIFI_PASSWORD_4 "SAM2024TR."
-#define WIFI_SSID_5 "RUT241_56EC"
-#define WIFI_PASSWORD_5 "Si7t1PRs"
-
 #define MAX_WIFI_RETRIES 5
 
 #define API_KEY "AIzaSyBnEwHEpxCQkJ48H4dUNHimrWkfg_FbEY8"
@@ -31,6 +20,7 @@
 #define MISO_PIN    19
 #define SCK_PIN     18
 #define LED_PIN     13
+#define BUZZER_PIN  14
 
 int RXPin = 26;
 int TXPin = 27;
@@ -55,41 +45,106 @@ SemaphoreHandle_t semafor;
 unsigned long powerOnTime = 0;
 bool powerOn = false;
 
-void initWiFi(void * parameter) {
-  int attempt = 1;
-  do {
-    WiFi.begin(
-      attempt == 1 ? WIFI_SSID_1 : 
-      attempt == 2 ? WIFI_SSID_2 : 
-      attempt == 3 ? WIFI_SSID_3 :
-      attempt == 4 ? WIFI_SSID_4 :
-      WIFI_SSID_5,
-      attempt == 1 ? WIFI_PASSWORD_1 : 
-      attempt == 2 ? WIFI_PASSWORD_2 : 
-      attempt == 3 ? WIFI_PASSWORD_3 :
-      attempt == 4 ? WIFI_PASSWORD_4 :
-      WIFI_PASSWORD_5
-    );
+const char *WIFI_SSID[] = {
+  "Samsung t50",
+  "trlink_cbce",
+  "VodafoneNet-RBE84T",
+  "SAM Mekanik Enerji",
+  "RUT241_56EC"
+};
 
-    Serial.printf("WiFi'ye bağlanılıyor... Attempt %d\n", attempt);
-    unsigned long startTime = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - startTime < 15000) {
-      Serial.print('.');
-      delay(1000);
+const char *WIFI_PASSWORD[] = {
+  "SAMM2023TR..",
+  "12345678",
+  "SAMM2023TR.",
+  "SAM2024TR.",
+  "Si7t1PRs"
+};
+
+bool cardRead = false;
+
+void initWiFi(void * parameter) {
+  int bestSignal = -9999; // En iyi sinyal
+  int bestSignalIndex = -1; // En iyi sinyalin indeksi
+
+  while (true) {
+    for (int i = 0; i < sizeof(WIFI_SSID) / sizeof(WIFI_SSID[0]); i++) {
+      WiFi.begin(WIFI_SSID[i], WIFI_PASSWORD[i]);
+      Serial.printf("WiFi'ye bağlanılıyor... SSID: %s\n", WIFI_SSID[i]);
+
+      unsigned long startTime = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000) {
+        delay(1000);
+      }
+
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("\nWiFi'ye başarıyla bağlandı. SSID: %s\n", WiFi.SSID().c_str());
+        xSemaphoreGive(semafor);
+        vTaskDelete(NULL);
+      } else {
+        Serial.printf("\nAğa bağlanılamadı. SSID: %s\n", WIFI_SSID[i]);
+      }
     }
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.printf("\nWiFi'ye başarıyla bağlandı. SSID: %s\n", WiFi.SSID().c_str());
-      xSemaphoreGive(semafor);
+
+    delay(5000); // 30 saniye bekle
+
+    // Bağlantı koparsa tekrar denemek için bağlantıyı kes
+    WiFi.disconnect();
+    delay(1000);
+
+    // En iyi sinyal gücüne sahip ağı bul
+    for (int i = 0; i < sizeof(WIFI_SSID) / sizeof(WIFI_SSID[0]); i++) {
+      WiFi.begin(WIFI_SSID[i], WIFI_PASSWORD[i]);
+      Serial.printf("WiFi'ye bağlanılıyor... SSID: %s\n", WIFI_SSID[i]);
+
+      unsigned long startTime = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000) {
+        delay(1000);
+      }
+
+      int signalStrength = WiFi.RSSI();
+      Serial.printf("Sinyal Gücü: %d\n", signalStrength);
+
+      if (signalStrength > bestSignal) {
+        bestSignal = signalStrength;
+        bestSignalIndex = i;
+      }
+
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("\nWiFi'ye başarıyla bağlandı. SSID: %s\n", WiFi.SSID().c_str());
+        xSemaphoreGive(semafor);
+        vTaskDelete(NULL);
+      } else {
+        Serial.printf("\nAğa bağlanılamadı. SSID: %s\n", WIFI_SSID[i]);
+      }
+    }
+
+    if (bestSignalIndex != -1) {
+      Serial.printf("\nEn iyi sinyal gücüne sahip WiFi ağına bağlanılıyor. SSID: %s\n", WIFI_SSID[bestSignalIndex]);
+      WiFi.begin(WIFI_SSID[bestSignalIndex], WIFI_PASSWORD[bestSignalIndex]);
+
+      unsigned long startTime = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000) {
+        delay(1000);
+      }
+
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("\nWiFi'ye başarıyla bağlandı. SSID: %s\n", WiFi.SSID().c_str());
+        xSemaphoreGive(semafor);
+        vTaskDelete(NULL);
+      } else {
+        Serial.printf("\nEn iyi sinyal gücüne sahip WiFi ağına bağlanılamadı. SSID: %s\n", WIFI_SSID[bestSignalIndex]);
+        vTaskDelete(NULL);
+      }
+    } else {
+      Serial.println("\nHerhangi bir WiFi ağına bağlanılamadı.");
       vTaskDelete(NULL);
     }
-    attempt++;
-  } while (attempt <= 2 && WiFi.status() != WL_CONNECTED);
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\nHerhangi bir WiFi ağına bağlanılamadı.");
-    vTaskDelete(NULL);
+    delay(5000); // 30 saniye bekle
   }
 }
+
 
 void wifiCheck(void * parameter) {
   vTaskDelay(7000 / portTICK_PERIOD_MS);
@@ -182,13 +237,34 @@ bool waitForWiFiConnection() {
 String lastUID = "";
 String uniqueNode = String(millis());
 
+bool saveDataToFlash(const String& uid, const String& elapsedTime, const String& latitude, const String& longitude) {
+  int count = preferences.getInt("count", 0);
+  String keyUid = "uid" + String(count);
+  String keyTime = "time" + String(count);
+  String keyLat = "lat" + String(count);
+  String keyLon = "lon" + String(count);
+
+  preferences.putString(keyUid.c_str(), uid);
+  preferences.putString(keyTime.c_str(), elapsedTime);
+  preferences.putString(keyLat.c_str(), latitude);
+  preferences.putString(keyLon.c_str(), longitude);
+
+  count++;
+  preferences.putInt("count", count);
+
+  return true;
+}
+
+unsigned long lastGpsFixTime = 0; // GPS sinyalinin en son ne zaman alındığını takip etmek için
+
 void readRFIDCard(void * param) {
+  bool buzzerActive = false;
   for (;;) {
-    if ( !mfrc522.PICC_IsNewCardPresent()) {
+    if (!mfrc522.PICC_IsNewCardPresent()) {
       delay(50);
       continue;
     }
-    if ( !mfrc522.PICC_ReadCardSerial()) {
+    if (!mfrc522.PICC_ReadCardSerial()) {
       delay(50);
       continue;
     }
@@ -212,8 +288,6 @@ void readRFIDCard(void * param) {
 
     lastUID = content;
 
-    String uniqueNode = String(millis());
-
     FirebaseJson json;
 
     if (gps.location.isValid()) {
@@ -223,6 +297,7 @@ void readRFIDCard(void * param) {
       dtostrf(gps.location.lng(), 6, 6, lonBuffer);
       json.set("latitude", latBuffer);
       json.set("longitude", lonBuffer);
+      lastGpsFixTime = millis();  // Update the last GPS fix time
     } else {
       json.set("latitude", "");
       json.set("longitude", "");
@@ -241,7 +316,7 @@ void readRFIDCard(void * param) {
       json.set("timestamp", timeString);
     }
 
-    String userPath = "/UsersData/" + uid + "/readings/" + content + "_" + uniqueNode;
+    String userPath = "/UsersData/" + uid + "/readings/" + content + "_" + String(millis());
 
     if (Firebase.ready()) {
       if (Firebase.RTDB.setJSON(&fbdo, userPath.c_str(), &json)) {
@@ -261,9 +336,16 @@ void readRFIDCard(void * param) {
       Serial.println("Data saved to flash memory.");
     }
 
+    // Kart okunduğunda buzzer'ı kapat
+    digitalWrite(BUZZER_PIN, LOW);
+    buzzerActive = false; // Buzzer durumunu güncelle
+
+    cardRead = true;  // Set the card read flag
     delay(1000);
   }
 }
+
+
 
 void displayInfo() {
   if (gps.location.isValid()) {
@@ -273,6 +355,9 @@ void displayInfo() {
     Serial.println(gps.location.lng(), 6);
     Serial.print("Altitude: ");
     Serial.println(gps.altitude.meters());
+    if (!cardRead) {  // Only turn on the buzzer if a card hasn't been read yet
+      digitalWrite(BUZZER_PIN, HIGH);  // Turn on the buzzer when GPS is connected
+    }
   } else {
     Serial.println("Location: Not Available");
   }
@@ -309,6 +394,8 @@ void setup() {
   semafor = xSemaphoreCreateBinary();
 
   pinMode(LED_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);  // Initialize the buzzer pin
+  digitalWrite(BUZZER_PIN, LOW);  // Ensure the buzzer is off initially
 
   preferences.begin("my-app", false);
 
@@ -344,6 +431,16 @@ void setup() {
     0
   );
 
+  xTaskCreatePinnedToCore(
+  checkBuzzer,
+  "CheckBuzzer",
+  10000,
+  NULL,
+  1,
+  NULL,
+  0
+);
+
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
   mfrc522.PCD_Init();
 
@@ -353,7 +450,23 @@ void setup() {
   powerOn = true;
 }
 
+bool gpsDataAvailable = false;
+
+void checkBuzzer(void * parameter) {
+  for (;;) {
+    if (!gpsDataAvailable && (millis() - lastGpsFixTime > 30000) && !cardRead && powerOn) {
+      digitalWrite(BUZZER_PIN, HIGH);
+      delay(500);  // Buzzer'ın 0.5 saniye çalmasını sağlamak için
+      digitalWrite(BUZZER_PIN, LOW);
+    }
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+  }
+}
+
 void loop() {
+    if (gps.location.isValid()) {
+  gpsDataAvailable = true;
+}
   unsigned long currentMillis = millis();
   unsigned long elapsedTime = currentMillis - powerOnTime;
   Serial.print("Elapsed Time (s): ");
@@ -364,4 +477,6 @@ void loop() {
       displayInfo();
 
   vTaskDelay(100 / portTICK_PERIOD_MS);
+
+
 }
