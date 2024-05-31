@@ -46,9 +46,9 @@ unsigned long powerOnTime = 0;
 bool powerOn = false;
 
 const char *WIFI_SSID[] = {
-  "Samsung t50",
+  "Samsung t50.",
   "trlink_cbce",
-  "VodafoneNet-RBE84T",
+  "VodafoneNet-RBE84T.",
   "SAM Mekanik Enerji",
   "RUT241_56EC"
 };
@@ -269,10 +269,6 @@ void readRFIDCard(void * param) {
       continue;
     }
 
-    digitalWrite(LED_PIN, HIGH);
-    delay(1000);
-    digitalWrite(LED_PIN, LOW);
-
     String content = "";
     for (byte i = 0; i < mfrc522.uid.size; i++) {
       content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : ""));
@@ -287,6 +283,10 @@ void readRFIDCard(void * param) {
     }
 
     lastUID = content;
+
+    digitalWrite(LED_PIN, HIGH); // LED'i yak
+    delay(1000);
+    digitalWrite(LED_PIN, LOW); // LED'i söndür
 
     FirebaseJson json;
 
@@ -344,6 +344,7 @@ void readRFIDCard(void * param) {
     delay(1000);
   }
 }
+
 
 
 
