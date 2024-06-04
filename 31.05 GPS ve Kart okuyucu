@@ -48,7 +48,7 @@ bool powerOn = false;
 const char *WIFI_SSID[] = {
   "Samsung t50.",
   "trlink_cbce",
-  "VodafoneNet-RBE84T.",
+  "VodafoneNet-RBE84T",
   "SAM Mekanik Enerji",
   "RUT241_56EC"
 };
@@ -180,31 +180,27 @@ void wifiCheck(void * parameter) {
       for (int i = 0; i < count; i++) {
         String keyUid = "uid" + String(i);
         String keyTime = "time" + String(i);
+        String keyLat = "lat" + String(i);
+        String keyLon = "lon" + String(i);
         String uidString = preferences.getString(keyUid.c_str(), "");
         String timeString = preferences.getString(keyTime.c_str(), "");
+        String latString = preferences.getString(keyLat.c_str(), "");
+        String lonString = preferences.getString(keyLon.c_str(), "");
+
         if (uidString != "" && timeString != "") {
           parentPath = databasePath + "/" + String(millis());
           FirebaseJson json;
           json.set("uid", uidString);
           json.set("time", timeString);
-
-          char latBuffer[10];
-          char lonBuffer[10];
-
-          if (gps.location.isValid()) {
-            dtostrf(gps.location.lat(), 6, 6, latBuffer);
-            dtostrf(gps.location.lng(), 6, 6, lonBuffer);
-            json.set("latitude", latBuffer);
-            json.set("longitude", lonBuffer);
-          } else {
-            json.set("latitude", "");
-            json.set("longitude", "");
-          }
+          json.set("latitude", latString);
+          json.set("longitude", lonString);
 
           if (Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json)) {
             Serial.printf("JSON ayarlandı ve veri başarıyla gönderildi... %s\n", Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json) ? "ok" : fbdo.errorReason().c_str());
             preferences.remove(keyUid.c_str());
             preferences.remove(keyTime.c_str());
+            preferences.remove(keyLat.c_str());
+            preferences.remove(keyLon.c_str());
             Serial.println("Flaş bellekten veri silindi.");
             delay(1000);
           } else {
@@ -218,6 +214,7 @@ void wifiCheck(void * parameter) {
     vTaskDelay(5000 / portTICK_PERIOD_MS);
   }
 }
+
 
 bool waitForWiFiConnection() {
   unsigned long startTime = millis();
@@ -258,7 +255,6 @@ bool saveDataToFlash(const String& uid, const String& elapsedTime, const String&
 unsigned long lastGpsFixTime = 0; // GPS sinyalinin en son ne zaman alındığını takip etmek için
 
 void readRFIDCard(void * param) {
-  bool buzzerActive = false;
   for (;;) {
     if (!mfrc522.PICC_IsNewCardPresent()) {
       delay(50);
@@ -284,69 +280,46 @@ void readRFIDCard(void * param) {
 
     lastUID = content;
 
-    digitalWrite(LED_PIN, HIGH); // LED'i yak
+    digitalWrite(LED_PIN, HIGH);
     delay(1000);
-    digitalWrite(LED_PIN, LOW); // LED'i söndür
+    digitalWrite(LED_PIN, LOW);
 
-    FirebaseJson json;
+    char latBuffer[10] = "00000";
+    char lonBuffer[10] = "00000";
 
     if (gps.location.isValid()) {
-      char latBuffer[10];
-      char lonBuffer[10];
       dtostrf(gps.location.lat(), 6, 6, latBuffer);
       dtostrf(gps.location.lng(), 6, 6, lonBuffer);
-      json.set("latitude", latBuffer);
-      json.set("longitude", lonBuffer);
-      lastGpsFixTime = millis();  // Update the last GPS fix time
-    } else {
-      json.set("latitude", "");
-      json.set("longitude", "");
+      lastGpsFixTime = millis();
     }
-
-    json.set("UID", content);
-    json.set("elapsed_time", (millis() - powerOnTime) / 1000);
 
     if (WiFi.status() == WL_CONNECTED) {
-      time_t now;
-      struct tm timeinfo;
-      time(&now);
-      localtime_r(&now, &timeinfo);
-      char timeString[25];
-      strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
-      json.set("timestamp", timeString);
-    }
+      Serial.println("WiFi bağlantısı var, veriler Firebase'e gönderiliyor...");
 
-    String userPath = "/UsersData/" + uid + "/readings/" + content + "_" + String(millis());
+      parentPath = databasePath + "/" + String(millis());
+      FirebaseJson json;
+      json.set("uid", content);
+      json.set("time", String((millis() - powerOnTime) / 1000));
+      json.set("latitude", String(latBuffer));
+      json.set("longitude", String(lonBuffer));
 
-    if (Firebase.ready()) {
-      if (Firebase.RTDB.setJSON(&fbdo, userPath.c_str(), &json)) {
-        Serial.println("Data sent to Firebase successfully!");
+      if (Firebase.RTDB.setJSON(&fbdo, parentPath.c_str(), &json)) {
+        Serial.println("Veriler başarıyla gönderildi.");
       } else {
-        Serial.println("Failed to send data to Firebase.");
-        Serial.println(fbdo.errorReason());
+        Serial.printf("Veri gönderme hatası: %s\n", fbdo.errorReason().c_str());
       }
     } else {
-      int count = preferences.getInt("count", 0);
-      String keyUid = "uid" + String(count);
-      String keyTime = "time" + String(count);
-      preferences.putString(keyUid.c_str(), content);
-      preferences.putString(keyTime.c_str(), String((millis() - powerOnTime) / 1000));
-      count++;
-      preferences.putInt("count", count);
-      Serial.println("Data saved to flash memory.");
+      Serial.println("WiFi bağlantısı yok, veriler flaş belleğe kaydediliyor...");
+      saveDataToFlash(content, String((millis() - powerOnTime) / 1000), String(latBuffer), String(lonBuffer));
     }
 
     // Kart okunduğunda buzzer'ı kapat
     digitalWrite(BUZZER_PIN, LOW);
-    buzzerActive = false; // Buzzer durumunu güncelle
 
-    cardRead = true;  // Set the card read flag
+    cardRead = true;
     delay(1000);
   }
 }
-
-
-
 
 void displayInfo() {
   if (gps.location.isValid()) {
