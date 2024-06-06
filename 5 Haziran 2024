@@ -7,8 +7,11 @@
 #include <Preferences.h>
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
+#include <esp32-hal.h>
+#include <esp_task_wdt.h>
 
-#define MAX_WIFI_RETRIES 5
+
+#define MAX_WIFI_RETRIES 3
 
 #define DEVICE_NAME "Cihaz1"
 #define API_KEY "AIzaSyBnEwHEpxCQkJ48H4dUNHimrWkfg_FbEY8"
@@ -47,24 +50,24 @@ unsigned long powerOnTime = 0;
 bool powerOn = false;
 
 const char *WIFI_SSID[] = {
-  "Samsung t50.",
   "trlink_cbce",
   "VodafoneNet-RBE84T",
   "SAM Mekanik Enerji",
+  "Samsung t50.",
   "RUT241_56EC"
 };
 
 const char *WIFI_PASSWORD[] = {
-  "SAMM2023TR..",
   "12345678",
   "SAMM2023TR.",
   "SAM2024TR.",
+  "SAMM2023TR..",
   "Si7t1PRs"
 };
 
 bool cardRead = false;
 
-void initWiFi(void * parameter) {
+void initWiFi(void* parameter) {
   int bestSignal = -9999; // En iyi sinyal
   int bestSignalIndex = -1; // En iyi sinyalin indeksi
 
@@ -74,7 +77,7 @@ void initWiFi(void * parameter) {
       Serial.printf("WiFi'ye bağlanılıyor... SSID: %s\n", WIFI_SSID[i]);
 
       unsigned long startTime = millis();
-      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000) {
+      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 6000) {
         delay(1000);
       }
 
@@ -93,7 +96,7 @@ void initWiFi(void * parameter) {
       gpsSerial.begin(GPSBaud);
     }
 
-    delay(5000); // 30 saniye bekle
+    delay(4000); // 5 saniye bekle
 
     // Bağlantı koparsa tekrar denemek için bağlantıyı kes
     WiFi.disconnect();
@@ -105,7 +108,7 @@ void initWiFi(void * parameter) {
       Serial.printf("WiFi'ye bağlanılıyor... SSID: %s\n", WIFI_SSID[i]);
 
       unsigned long startTime = millis();
-      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000) {
+      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 6000) {
         delay(1000);
       }
 
@@ -131,7 +134,7 @@ void initWiFi(void * parameter) {
       WiFi.begin(WIFI_SSID[bestSignalIndex], WIFI_PASSWORD[bestSignalIndex]);
 
       unsigned long startTime = millis();
-      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000) {
+      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 6000) {
         delay(1000);
       }
 
@@ -148,11 +151,9 @@ void initWiFi(void * parameter) {
       vTaskDelete(NULL);
     }
 
-    delay(5000); // 30 saniye bekle
+    delay(4000); // 4 saniye bekle
   }
 }
-
-
 
 void wifiCheck(void * parameter) {
   vTaskDelay(7000 / portTICK_PERIOD_MS);
@@ -225,10 +226,9 @@ void wifiCheck(void * parameter) {
   }
 }
 
-
 bool waitForWiFiConnection() {
   unsigned long startTime = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 15000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 7000) {
     delay(500);
     Serial.print(".");
   }
@@ -280,8 +280,6 @@ bool saveDataToFlash(const String& uid, const String& elapsedTime, const String&
   return true;
 }
 
-
-
 unsigned long lastGpsFixTime = 0; // GPS sinyalinin en son ne zaman alındığını takip etmek için
 
 void readRFIDCard(void * param) {
@@ -290,6 +288,7 @@ void readRFIDCard(void * param) {
       delay(50);
       continue;
     }
+    esp_task_wdt_reset(); // Görevin sıfırlanması
     if (!mfrc522.PICC_ReadCardSerial()) {
       delay(50);
       continue;
@@ -369,9 +368,6 @@ void readRFIDCard(void * param) {
     delay(1000);
   }
 }
-
-
-
 
 void displayInfo() {
   if (gps.location.isValid()) {
