@@ -476,7 +476,7 @@ bool gpsDataAvailable = false;
 
 void checkBuzzer(void * parameter) {
   for (;;) {
-    if (!gpsDataAvailable && (millis() - lastGpsFixTime > 30000) && !cardRead && powerOn) {
+    if (!gpsDataAvailable && (millis() - lastGpsFixTime > 60000) && !cardRead && powerOn) {
       digitalWrite(BUZZER_PIN, HIGH);
       delay(500);  // Buzzer'ın 0.5 saniye çalmasını sağlamak için
       digitalWrite(BUZZER_PIN, LOW);
