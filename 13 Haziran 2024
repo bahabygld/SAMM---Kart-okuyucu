@@ -14,10 +14,10 @@
 #define MAX_WIFI_RETRIES 3
 
 #define DEVICE_NAME "Cihaz1"
-#define API_KEY "AIzaSyBnEwHEpxCQkJ48H4dUNHimrWkfg_FbEY8"
-#define USER_EMAIL "baha.bygld@gmail.com"
-#define USER_PASSWORD "224223"
-#define DATABASE_URL "https://sam-kart2-default-rtdb.europe-west1.firebasedatabase.app/"
+#define API_KEY "AIzaSyAv3GgtPocVlPhnfZ9FRRaboAV0dSHug8g"
+#define USER_EMAIL "Sammekanikenerji@gmail.com"
+#define USER_PASSWORD "123456"
+#define DATABASE_URL "https://sam-kart-okutma-default-rtdb.europe-west1.firebasedatabase.app/"
 #define RST_PIN     15
 #define SS_PIN      5
 #define MOSI_PIN    23
